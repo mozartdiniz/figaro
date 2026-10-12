@@ -59,6 +59,9 @@ docs/         protocol research, engine protocol
 
 ## Status (2026-10-12, moving development from macOS to Linux)
 
+**On Linux, start with `docs/LINUX_HANDOFF.md`**: step-by-step setup, the
+pending engine edit, and the playback checks, in order.
+
 Verified live with the user's account (web player token + Music User Token
 from `.env`): storefront, catalog search, library songs, playlists,
 playlist tracks, create playlist, add to playlist, add to library. The GTK

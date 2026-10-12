@@ -50,6 +50,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matched = songs.iter().filter(|s| s.catalog_id.is_some()).count();
     let dated = songs.iter().filter(|s| s.date_added.is_some()).count();
     println!("library: {} songs, {matched} with catalog IDs, {dated} with dateAdded", songs.len());
+    // Uploaded/unmatched songs only play by library ID; handy for testing.
+    for s in songs.iter().filter(|s| s.catalog_id.is_none()).take(3) {
+        println!("  no catalog ID: {} — {} ({})", s.name, s.artist, s.id);
+    }
 
     let playlists = client.library_playlists().await?;
     println!("playlists: {}", playlists.len());
