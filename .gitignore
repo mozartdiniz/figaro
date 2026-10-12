@@ -1,0 +1,5 @@
+/target
+/engine/bundle
+.DS_Store
+*.p8
+.env

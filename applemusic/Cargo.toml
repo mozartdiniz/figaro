@@ -1,0 +1,18 @@
+[package]
+name = "applemusic"
+version = "0.1.0"
+edition = "2021"
+description = "Apple Music API client (developer token + library/catalog/playlists) for Figaro — no GTK dependency"
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+base64 = "0.22"
+p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
+log = "0.4"
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

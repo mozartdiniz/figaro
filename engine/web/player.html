@@ -1,0 +1,113 @@
+<!doctype html>
+<!--
+  Figaro playback page. Runs inside the hidden CEF window; never seen by the
+  user. It only does what needs MusicKit JS: sign-in (Music User Token) and
+  DRM playback. Everything else is native.
+
+  Native → page: figaro.dispatch({cmd: ...}) via Frame::execute_java_script.
+  Page → native: console.log("FIGARO:" + json), caught by on_console_message
+  and written to the engine's stdout as one JSON line.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Figaro Engine</title>
+<script>
+  const send = (o) => console.log("FIGARO:" + JSON.stringify(o));
+  let music = null;
+  let listening = false;
+  let lastSecond = -1;
+
+  document.addEventListener("musickitloaded", () => send({ event: "loaded" }));
+
+  function item(it) {
+    if (!it) return null;
+    const a = it.attributes || {};
+    const art = a.artwork || it.artwork;
+    return {
+      id: it.id,
+      title: a.name || it.title || "",
+      artist: a.artistName || it.artistName || "",
+      album: a.albumName || it.albumName || "",
+      duration: (a.durationInMillis || it.playbackDuration || 0) / 1000,
+      artwork: art && art.url ? art.url : null,
+    };
+  }
+
+  function listen() {
+    if (listening) return;
+    listening = true;
+    music.addEventListener("playbackStateDidChange", () =>
+      send({ event: "state", playing: music.isPlaying, state: music.playbackState }));
+    music.addEventListener("nowPlayingItemDidChange", () =>
+      send({ event: "now_playing", item: item(music.nowPlayingItem),
+             index: music.queue ? music.queue.position : -1 }));
+    music.addEventListener("playbackTimeDidChange", () => {
+      const s = Math.floor(music.currentPlaybackTime || 0);
+      if (s === lastSecond) return;
+      lastSecond = s;
+      send({ event: "time", position: music.currentPlaybackTime || 0,
+             duration: music.currentPlaybackDuration || 0 });
+    });
+    music.addEventListener("mediaPlaybackError", (e) =>
+      send({ event: "error", message: "playback: " + (e && (e.message || e.name) || "unknown") }));
+    music.addEventListener("authorizationStatusDidChange", () =>
+      music.isAuthorized
+        ? send({ event: "authorized", user_token: music.musicUserToken })
+        : send({ event: "needs_auth" }));
+  }
+
+  async function configure(developerToken) {
+    music = await MusicKit.configure({
+      developerToken,
+      app: { name: "Figaro", build: "0.1.0" },
+    });
+    listen();
+    send(music.isAuthorized
+      ? { event: "authorized", user_token: music.musicUserToken }
+      : { event: "needs_auth" });
+  }
+
+  async function dispatch(c) {
+    try {
+      if (c.cmd !== "configure" && !music) throw new Error("not configured");
+      switch (c.cmd) {
+        case "configure": await configure(c.developer_token); break;
+        case "authorize": {
+          const token = await music.authorize();
+          send({ event: "authorized", user_token: token });
+          break;
+        }
+        case "unauthorize": await music.unauthorize(); send({ event: "needs_auth" }); break;
+        case "play": {
+          const start = c.start || 0;
+          // startWith is MusicKit v3; startPosition is the v1 name.
+          await music.setQueue({ songs: c.ids, startWith: start, startPosition: start });
+          await music.play();
+          break;
+        }
+        case "toggle": music.isPlaying ? music.pause() : await music.play(); break;
+        case "pause": music.pause(); break;
+        case "resume": await music.play(); break;
+        case "next": await music.skipToNextItem(); break;
+        case "previous":
+          // Like Music.app: restart the song unless we're near its start.
+          if ((music.currentPlaybackTime || 0) > 3) await music.seekToTime(0);
+          else await music.skipToPreviousItem();
+          break;
+        case "seek": await music.seekToTime(c.seconds); break;
+        case "volume": music.volume = Math.max(0, Math.min(1, c.value)); break;
+        default: throw new Error("unknown command " + c.cmd);
+      }
+    } catch (e) {
+      send({ event: "error", message: c.cmd + ": " + String((e && e.message) || e) });
+    }
+  }
+
+  window.figaro = { dispatch };
+</script>
+<script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" async
+        onerror="send({event: 'error', message: 'could not load MusicKit JS (offline?)'})"></script>
+</head>
+<body></body>
+</html>

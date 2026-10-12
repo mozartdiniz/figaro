@@ -1,0 +1,31 @@
+[workspace]
+members = [".", "applemusic", "engine"]
+# The engine pulls in CEF (a large download at build time), so plain
+# `cargo build` / `cargo run` only builds the GTK app and the API crate.
+default-members = [".", "applemusic"]
+resolver = "2"
+
+[package]
+name = "figaro"
+version = "0.1.0"
+edition = "2021"
+description = "Native GNOME player for an Apple Music subscription"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0"
+log = "0.4"
+pretty_env_logger = "0.5"
+gtk = { package = "gtk4", version = "0.10", features = ["gnome_46"] }
+adw = { package = "libadwaita", version = "0.8", features = ["v1_5"] }
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "time", "sync", "macros"] }
+async-channel = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+applemusic = { path = "applemusic" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native", "crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
