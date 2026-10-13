@@ -1,5 +1,9 @@
 # Linux handoff — instructions for Claude Code
 
+> **Done 2026-10-13.** Kept for history. The CEF engine described below was
+> replaced by castlabs Electron (CEF has no AAC decoder); see `CLAUDE.md`
+> and `docs/APPLE_MUSIC_PROTOCOL.md`.
+
 Development moved from macOS to Linux on 2026-10-12. This file is for
 Claude Code on the Linux machine. Work through the steps **in order**. After
 each one, report the result to the user before going on. Where a step says

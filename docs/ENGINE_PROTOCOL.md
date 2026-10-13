@@ -1,6 +1,7 @@
 # App ↔ engine protocol
 
-`figaro-engine` is a child process of the GTK app. They talk with one JSON
+`figaro-engine` (castlabs Electron running `engine/main.js`) is a child
+process of the GTK app. They talk with one JSON
 object per line: commands on the engine's stdin, events on its stdout.
 Chromium also writes to stdout, so the app ignores any line that isn't an
 event object. When stdin closes, the engine quits.

@@ -50,6 +50,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matched = songs.iter().filter(|s| s.catalog_id.is_some()).count();
     let dated = songs.iter().filter(|s| s.date_added.is_some()).count();
     println!("library: {} songs, {matched} with catalog IDs, {dated} with dateAdded", songs.len());
+    for s in songs.iter().take(3) {
+        println!("  newest: {} — {} ({})", s.name, s.artist, s.date_added.as_deref().unwrap_or("?"));
+    }
+    // Dates come from albums, so they're only roughly in rank order.
+    let out_of_order = songs.windows(2).filter(|w| w[0].date_added < w[1].date_added).count();
+    println!("  date added out of rank order: {out_of_order} of {}", songs.len());
     // Uploaded/unmatched songs only play by library ID; handy for testing.
     for s in songs.iter().filter(|s| s.catalog_id.is_none()).take(3) {
         println!("  no catalog ID: {} — {} ({})", s.name, s.artist, s.id);

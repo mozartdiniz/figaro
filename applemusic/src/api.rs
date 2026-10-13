@@ -104,16 +104,21 @@ impl Client {
         Ok(out)
     }
 
-    /// Every song in the user's library. `progress` gets the running count
-    /// after each page; large libraries take one request per 100 songs.
+    /// Every song in the user's library, newest first. `progress` gets the
+    /// running count after each page; large libraries take one request per
+    /// 100 songs. Songs carry no `dateAdded`, but the API sorts by it, and
+    /// `include=albums` gives each song its library album's.
     pub async fn library_songs(&self, mut progress: impl FnMut(usize)) -> Result<Vec<Song>, Error> {
-        let first = format!("/v1/me/library/songs?limit={LIBRARY_PAGE}");
+        let first = format!("/v1/me/library/songs?limit={LIBRARY_PAGE}&sort=-dateAdded&include=albums");
         let mut out = Vec::new();
         self.paginate::<SongAttributes>(&first, |r| {
             out.extend(r.into_iter().filter_map(Song::from_resource));
             progress(out.len());
         })
         .await?;
+        for (rank, song) in out.iter_mut().enumerate() {
+            song.added_rank = Some(rank as u32);
+        }
         Ok(out)
     }
 
@@ -150,6 +155,13 @@ impl Client {
         let ids: Vec<String> = catalog_song_ids.iter().map(|id| encode(id)).collect();
         let path = format!("/v1/me/library?ids[songs]={}", ids.join(","));
         self.send(Method::POST, &path, None).await.map(drop)
+    }
+
+    /// Removes a song from the user's library by its library ID (`i.…`).
+    /// Not in Apple's public API docs; music.apple.com does the same.
+    pub async fn remove_from_library(&self, library_song_id: &str) -> Result<(), Error> {
+        let path = format!("/v1/me/library/songs/{}", encode(library_song_id));
+        self.send(Method::DELETE, &path, None).await.map(drop)
     }
 
     pub async fn create_playlist(
@@ -192,14 +204,9 @@ impl Client {
         let mut next = Some(first.to_owned());
         while let Some(path) = next {
             let page: Page<Resource<A>> = self.get_json(&path).await?;
-            next = page.next;
-            // `next` drops the limit we asked for; keep pages large.
-            if let Some(n) = next.as_mut() {
-                if !n.contains("limit=") {
-                    n.push(if n.contains('?') { '&' } else { '?' });
-                    n.push_str(&format!("limit={LIBRARY_PAGE}"));
-                }
-            }
+            // `next` drops the parameters we asked with (limit, sort,
+            // include); carry them over.
+            next = page.next.map(|n| with_params_of(&n, first));
             sink(page.data);
         }
         Ok(())
@@ -276,6 +283,23 @@ impl Client {
     }
 }
 
+/// `next` with every query parameter of `first` that it lacks appended.
+fn with_params_of(next: &str, first: &str) -> String {
+    let mut out = next.to_owned();
+    let Some((_, query)) = first.split_once('?') else { return out };
+    for param in query.split('&') {
+        let key = param.split('=').next().unwrap_or(param);
+        let has = next
+            .split_once('?')
+            .is_some_and(|(_, q)| q.split('&').any(|p| p.split('=').next() == Some(key)));
+        if !has {
+            out.push(if out.contains('?') { '&' } else { '?' });
+            out.push_str(param);
+        }
+    }
+    out
+}
+
 /// Percent-encodes a query/path component (RFC 3986 unreserved chars kept).
 fn encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -290,7 +314,20 @@ fn encode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::encode;
+    use super::{encode, with_params_of};
+
+    #[test]
+    fn carries_first_page_params_to_next() {
+        let first = "/v1/me/library/songs?limit=100&sort=-dateAdded&include=albums";
+        assert_eq!(
+            with_params_of("/v1/me/library/songs?offset=100", first),
+            "/v1/me/library/songs?offset=100&limit=100&sort=-dateAdded&include=albums"
+        );
+        assert_eq!(
+            with_params_of("/v1/me/library/songs?offset=100&limit=25", first),
+            "/v1/me/library/songs?offset=100&limit=25&sort=-dateAdded&include=albums"
+        );
+    }
 
     #[test]
     fn encodes_search_terms() {

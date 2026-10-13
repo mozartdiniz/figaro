@@ -22,6 +22,7 @@ pub enum Request {
         start: usize,
     },
     AddToLibrary(Vec<Song>),
+    RemoveFromLibrary(Vec<Song>),
     AddToPlaylist {
         playlist_id: String,
         songs: Vec<Song>,
@@ -121,6 +122,20 @@ impl SongTable {
             .map(|(index, song)| glib::BoxedAnyObject::new(Row { index, song: song.clone() }))
             .collect();
         self.0.store.splice(0, self.0.store.n_items(), &rows);
+        self.update_empty();
+    }
+
+    /// Removes the songs with these IDs in place, keeping scroll position
+    /// and sort.
+    pub fn remove_songs(&self, ids: &[String]) {
+        let store = &self.0.store;
+        for i in (0..store.n_items()).rev() {
+            let Some(obj) = store.item(i).and_downcast::<glib::BoxedAnyObject>() else { continue };
+            let gone = ids.contains(&obj.borrow::<Row>().song.id);
+            if gone {
+                store.remove(i);
+            }
+        }
         self.update_empty();
     }
 
@@ -233,6 +248,20 @@ impl SongTable {
         time.set_sorter(Some(&sorter(|a, b| a.song.duration_ms.cmp(&b.song.duration_ms))));
         view.append_column(&time);
 
+        if kind == Kind::Library {
+            // Sorted by Apple's date-added order (exact), newest first on the
+            // first click; the date shown may be the album's.
+            let added = column("Date Added", true, false, |r| {
+                r.song.date_added.as_deref().map(format_date).unwrap_or_default()
+            });
+            added.set_fixed_width(120);
+            added.set_sorter(Some(&sorter(|a, b| {
+                let rank = |r: &Row| r.song.added_rank.unwrap_or(u32::MAX);
+                rank(a).cmp(&rank(b))
+            })));
+            view.append_column(&added);
+        }
+
         let this = self.clone();
         let sorted = self.0.sorted.clone();
         sorted.connect_items_changed(move |_, _, _, _| this.update_empty());
@@ -253,6 +282,11 @@ impl SongTable {
         let (this, req) = (self.clone(), on_request.clone());
         add_lib.connect_activate(move |_, _| req(Request::AddToLibrary(this.selected_songs())));
         group.add_action(&add_lib);
+
+        let remove_lib = gio::SimpleAction::new("remove-from-library", None);
+        let (this, req) = (self.clone(), on_request.clone());
+        remove_lib.connect_activate(move |_, _| req(Request::RemoveFromLibrary(this.selected_songs())));
+        group.add_action(&remove_lib);
 
         let add_pl = gio::SimpleAction::new("add-to-playlist", Some(glib::VariantTy::STRING));
         let (this, req) = (self.clone(), on_request.clone());
@@ -288,8 +322,16 @@ impl SongTable {
         add_to.append(Some("New Playlist…"), Some("table.new-playlist"));
         add_to.append_section(None, playlists_menu);
         menu.append_submenu(Some("Add to Playlist"), &add_to);
+        if kind == Kind::Library {
+            let remove = gio::Menu::new();
+            remove.append(Some("Remove from Library…"), Some("table.remove-from-library"));
+            menu.append_section(None, &remove);
+        }
 
-        let popover = gtk::PopoverMenu::from_model(Some(&menu));
+        // Nested: "Add to Playlist" opens as its own popover. A sliding
+        // submenu keeps the short main page's height and squeezes the
+        // playlists into a tiny scroll area.
+        let popover = gtk::PopoverMenu::from_model_full(&menu, gtk::PopoverMenuFlags::NESTED);
         popover.set_parent(&self.0.view);
         popover.set_has_arrow(false);
         popover.set_halign(gtk::Align::Start);
@@ -347,6 +389,15 @@ const ROW_POS: &str = "figaro-row-position";
 fn cell_position(label: &gtk::Label) -> Option<u32> {
     // SAFETY: only `column` stores data under ROW_POS, always as u32.
     unsafe { label.data::<u32>(ROW_POS).map(|p| *p.as_ref()) }
+}
+
+/// RFC 3339 → "13 Oct 2026", in local time.
+fn format_date(rfc3339: &str) -> String {
+    glib::DateTime::from_iso8601(rfc3339, None)
+        .and_then(|d| d.to_local())
+        .and_then(|d| d.format("%-d %b %Y"))
+        .map(|s| s.to_string())
+        .unwrap_or_default()
 }
 
 fn column(title: &str, numeric: bool, expand: bool, text: fn(&Row) -> String) -> gtk::ColumnViewColumn {
@@ -437,6 +488,13 @@ mod tests {
         assert_eq!(cmp_ci("The Beatles", "beck"), Ordering::Less); // "beatles" < "beck"
         assert_eq!(cmp_ci("abba", "ABBA"), Ordering::Equal);
         assert_eq!(cmp_ci("", "Zappa"), Ordering::Greater);
+    }
+
+    #[test]
+    fn formats_dates() {
+        // Midday UTC: the same day in any local time zone.
+        assert_eq!(format_date("2026-10-13T12:00:00Z"), "13 Oct 2026");
+        assert_eq!(format_date("garbage"), "");
     }
 
     #[test]

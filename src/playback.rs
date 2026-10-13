@@ -1,4 +1,4 @@
-//! Client for the `figaro-engine` process (hidden CEF + MusicKit JS).
+//! Client for the `figaro-engine` process (hidden castlabs Electron + MusicKit JS).
 //!
 //! The engine is a child process speaking JSON lines: commands on its stdin,
 //! events on its stdout. Its stdout also carries Chromium noise, so only
@@ -96,6 +96,9 @@ impl Engine {
                 }
                 match serde_json::from_str::<Event>(&line) {
                     Ok(ev) => {
+                        if !line.contains("token") {
+                            log::debug!("engine → {line}");
+                        }
                         let _ = events.send(ev).await;
                     }
                     Err(_) => log::debug!("engine: {line}"),
@@ -109,7 +112,11 @@ impl Engine {
     }
 
     fn send(&self, value: serde_json::Value) {
-        let _ = self.tx.send(value.to_string());
+        let line = value.to_string();
+        if !line.contains("token") {
+            log::debug!("engine ← {line:.200}");
+        }
+        let _ = self.tx.send(line);
     }
 
     pub fn configure(&self, developer_token: &str) {

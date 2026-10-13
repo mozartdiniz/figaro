@@ -20,6 +20,14 @@
 
   document.addEventListener("musickitloaded", () => send({ event: "loaded" }));
 
+  // Apple Music streams AAC under Widevine. A Chromium without either
+  // (stock CEF has no AAC) fails later with MusicKit's vague "NO DRM".
+  const AAC = 'audio/mp4; codecs="mp4a.40.2"';
+  navigator.requestMediaKeySystemAccess("com.widevine.alpha",
+      [{ audioCapabilities: [{ contentType: AAC }] }])
+    .catch(() => send({ event: "error", message:
+      "this engine can't play Widevine-protected AAC; full songs won't play" }));
+
   function item(it) {
     if (!it) return null;
     const a = it.attributes || {};
@@ -62,6 +70,9 @@
       developerToken,
       app: { name: "Figaro", build: "0.1.0" },
     });
+    // AAC 256 kbps (flavor ctrp256), the best the web player gets; MusicKit
+    // may otherwise pick 64 kbps on its own.
+    music.bitrate = MusicKit.PlaybackBitrate.HIGH;
     listen();
     send(music.isAuthorized
       ? { event: "authorized", user_token: music.musicUserToken }
@@ -83,6 +94,8 @@
           const start = c.start || 0;
           // startWith is MusicKit v3; startPosition is the v1 name.
           await music.setQueue({ songs: c.ids, startWith: start, startPosition: start });
+          if (!music.queue || music.queue.length === 0)
+            throw new Error("queue is empty after setQueue (" + c.ids.length + " ids)");
           await music.play();
           break;
         }

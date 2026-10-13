@@ -1,0 +1,7 @@
+{
+  "name": "figaro-engine",
+  "version": "0.1.0",
+  "description": "Hidden MusicKit JS playback engine for Figaro (castlabs Electron)",
+  "license": "MIT",
+  "main": "main.js"
+}

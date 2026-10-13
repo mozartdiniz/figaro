@@ -1,7 +1,5 @@
 [workspace]
-members = [".", "applemusic", "engine"]
-# The engine pulls in CEF (a large download at build time), so plain
-# `cargo build` / `cargo run` only builds the GTK app and the API crate.
+members = [".", "applemusic"]
 default-members = [".", "applemusic"]
 resolver = "2"
 

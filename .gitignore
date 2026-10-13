@@ -3,3 +3,4 @@
 .DS_Store
 *.p8
 .env
+/engine/.cache

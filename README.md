@@ -17,8 +17,8 @@ Your Apple Music library and playlists on GNOME.
    instead.
 2. **Playback engine** (Linux):
    ```sh
-   sudo apt install libgtk-4-dev libadwaita-1-dev cmake ninja-build   # or your distro’s equivalent
-   just engine                          # downloads CEF, builds engine/bundle/
+   sudo apt install libgtk-4-dev libadwaita-1-dev curl unzip   # or your distro’s equivalent
+   just engine                          # downloads castlabs Electron into engine/bundle/
    ```
 3. `cargo run`, then *Sign In* with your Apple ID.
 
@@ -27,10 +27,10 @@ Your Apple Music library and playlists on GNOME.
 The window and every library operation are native GTK and Rust, calling the
 [Apple Music API](https://developer.apple.com/documentation/applemusicapi)
 directly. Apple Music audio is DRM-protected, so playback runs in a hidden
-Chromium (CEF) process with MusicKit JS, just as on music.apple.com. See
+castlabs Electron process with MusicKit JS, just as on music.apple.com. See
 `docs/APPLE_MUSIC_PROTOCOL.md`.
 
 Data lives in `~/.config/figaro/config.json` (key location),
 `~/.cache/figaro/library.json` (library cache),
-`~/.local/share/figaro/engine` (engine profile: MusicKit sign-in, Widevine),
+`~/.local/share/figaro/electron` (engine profile: MusicKit sign-in, Widevine),
 and the system keyring (Music User Token).

@@ -20,6 +20,22 @@ pub(crate) struct Resource<A> {
     #[serde(rename = "type")]
     pub kind: String,
     pub attributes: Option<A>,
+    #[serde(default)]
+    pub relationships: Relationships,
+}
+
+/// Only what `include=albums` brings: library songs never carry their own
+/// `dateAdded`, but their library album does.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct Relationships {
+    #[serde(default)]
+    pub albums: Option<Page<Resource<AlbumAttributes>>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AlbumAttributes {
+    pub date_added: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -99,7 +115,13 @@ pub struct Song {
     pub release_date: Option<String>,
     pub track_number: u32,
     pub disc_number: u32,
+    /// The song's `dateAdded`, or else its library album's (when the
+    /// album was added): RFC 3339.
     pub date_added: Option<String>,
+    /// Position in the library sorted by date added, 0 = newest. Exact,
+    /// unlike `date_added`, which may be the album's.
+    #[serde(default)]
+    pub added_rank: Option<u32>,
     /// Template URL with `{w}` and `{h}` placeholders.
     pub artwork_url: Option<String>,
 }
@@ -111,6 +133,12 @@ impl Song {
             "library-songs" => Source::Library,
             _ => return None, // music videos, uploaded videos, …
         };
+        let album_added = r
+            .relationships
+            .albums
+            .and_then(|p| p.data.into_iter().next())
+            .and_then(|a| a.attributes)
+            .and_then(|a| a.date_added);
         let a = r.attributes.unwrap_or_default();
         let catalog_id = match source {
             Source::Catalog => Some(r.id.clone()),
@@ -128,15 +156,17 @@ impl Song {
             release_date: a.release_date,
             track_number: a.track_number.unwrap_or(0),
             disc_number: a.disc_number.unwrap_or(1),
-            date_added: a.date_added,
+            date_added: a.date_added.or(album_added),
+            added_rank: None,
             artwork_url: a.artwork.map(|a| a.url),
         })
     }
 
-    /// The ID to hand to MusicKit for playback. Catalog IDs play most
-    /// reliably; uploaded songs only have their library ID.
+    /// The ID to hand to MusicKit for playback: the library ID for library
+    /// songs, since their `catalogId` can come from another storefront and
+    /// fail to resolve in the user's; the catalog ID otherwise.
     pub fn playback_id(&self) -> &str {
-        self.catalog_id.as_deref().unwrap_or(&self.id)
+        &self.id
     }
 
     pub fn year(&self) -> Option<u32> {
@@ -219,7 +249,7 @@ mod tests {
 
         let a = &songs[0];
         assert_eq!(a.source, Source::Library);
-        assert_eq!(a.playback_id(), "12345");
+        assert_eq!(a.playback_id(), "i.abc");
         assert_eq!(a.genre, "Rock");
         assert_eq!(a.year(), Some(1999));
         assert_eq!(a.track_ref().kind, "library-songs");

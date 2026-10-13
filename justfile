@@ -1,6 +1,6 @@
 set dotenv-load
 
-# Figaro — GTK app + CEF playback engine
+# Figaro — GTK app + castlabs Electron playback engine
 
 # Run the app (debug)
 run:
@@ -13,10 +13,10 @@ debug:
 test:
     cargo test
 
-# Build the playback engine and bundle it with CEF into engine/bundle/ (Linux).
-# First run downloads the CEF binary distribution (~300 MB).
+# Bundle the playback engine with castlabs Electron into engine/bundle/ (Linux).
+# First run downloads castlabs Electron (~120 MB).
 engine:
-    cargo run -p figaro-engine --bin bundle-engine -- engine/bundle --release
+    engine/bundle.sh
 
 # Probe the API with your key, outside the GTK app (see applemusic/examples/probe.rs)
 probe term="mozart":

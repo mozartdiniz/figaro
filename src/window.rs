@@ -690,6 +690,7 @@ impl Inner {
         match req {
             Request::Play { queue, start } => self.play(&queue, start),
             Request::AddToLibrary(songs) => self.add_to_library(songs),
+            Request::RemoveFromLibrary(songs) => self.remove_from_library_dialog(songs),
             Request::AddToPlaylist { playlist_id, songs } => self.add_to_playlist(playlist_id, songs),
             Request::NewPlaylist(songs) => self.new_playlist_dialog(songs),
         }
@@ -737,6 +738,64 @@ impl Inner {
                     }
                 }
                 Err(e) => inner.api_error(e),
+            }
+        });
+    }
+
+    fn remove_from_library_dialog(self: &Rc<Self>, songs: Vec<Song>) {
+        if songs.is_empty() || self.signed_in_client().is_none() {
+            return;
+        }
+        let heading = match songs.as_slice() {
+            [song] => format!("Remove “{}” from your library?", song.name),
+            _ => format!("Remove {} from your library?", plural(songs.len(), "song", "songs")),
+        };
+        let dialog = adw::AlertDialog::new(
+            Some(&heading),
+            Some("They'll also be removed from your playlists, on every device."),
+        );
+        dialog.add_responses(&[("cancel", "Cancel"), ("remove", "Remove")]);
+        dialog.set_response_appearance("remove", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        let weak = Rc::downgrade(self);
+        let songs = RefCell::new(Some(songs));
+        dialog.connect_response(Some("remove"), move |_, _| {
+            if let (Some(inner), Some(songs)) = (weak.upgrade(), songs.borrow_mut().take()) {
+                inner.remove_from_library(songs);
+            }
+        });
+        dialog.present(self.window.upgrade().as_ref());
+    }
+
+    fn remove_from_library(self: &Rc<Self>, songs: Vec<Song>) {
+        let Some(client) = self.signed_in_client() else { return };
+        let ids: Vec<String> = songs.into_iter().map(|s| s.id).collect();
+        // Optimistic: the songs go now; a failure reloads the library.
+        self.songs_table.remove_songs(&ids);
+        self.cache.borrow_mut().songs.retain(|s| !ids.contains(&s.id));
+        self.update_title();
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let n = ids.len();
+            let res = crate::bg(async move {
+                for id in &ids {
+                    client.remove_from_library(id).await?;
+                }
+                Ok::<_, applemusic::Error>(())
+            })
+            .await;
+            let Some(inner) = weak.upgrade() else { return };
+            match res {
+                Ok(()) => {
+                    inner.cache.borrow().save();
+                    inner.toast(&plural(n, "song removed from your library", "songs removed from your library"));
+                }
+                Err(e) => {
+                    inner.api_error(e);
+                    // Some may be gone, some not: get the truth back.
+                    inner.refresh_library();
+                }
             }
         });
     }

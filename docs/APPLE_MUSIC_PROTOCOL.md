@@ -76,28 +76,57 @@ Track references use `type: "songs"` (catalog ID) or `"library-songs"`
 (`i.` ID). Only playlists with `canEdit: true` accept tracks.
 
 Library songs carry `playParams.catalogId` when they're catalog songs.
-Uploaded songs don't. Figaro plays the catalog ID when one exists and falls
-back to the library ID otherwise.
+Uploaded songs don't. That `catalogId` can belong to another storefront
+(where the song was added): in a gb account, library catalog IDs were
+missing from the gb catalog, some present only in us. MusicKit then rejects
+the whole queue ("One or more items could not be resolved"). So Figaro plays
+library songs by their library ID (`i.…`), which MusicKit resolves for the
+user's storefront, and catalog songs by their catalog ID.
 
-### Playback: MusicKit JS in a hidden CEF window
+### Playback: MusicKit JS in a hidden castlabs Electron window
 
-Catalog audio is always encrypted. On Linux, music.apple.com plays only in
-browsers that ship Google's Widevine CDM. `engine/` is a CEF (Chromium)
-process with one hidden window running `engine/web/player.html`, which
-loads MusicKit JS v3. CEF gets Widevine through Chromium's component
-updater, which is the licensed path (Cider works the same way).
-Decision 2026-10-12: chosen over loading `libwidevinecdm.so` straight from
-Rust, which would break Widevine's license terms, and over a
+Catalog audio is always encrypted: AAC in MP4 under Widevine. On Linux,
+music.apple.com plays only in browsers that ship both Widevine and an AAC
+decoder. `engine/` is a castlabs Electron app (`main.js`) with one hidden
+window running `engine/web/player.html`, which loads MusicKit JS v3.
+castlabs' Electron fork ships Chromium's AAC decoder and gets the Widevine
+CDM through castlabs' licensed component updater (Cider works the same
+way). Decision 2026-10-12: chosen over loading `libwidevinecdm.so` straight
+from Rust, which would break Widevine's license terms, and over a
 previews-only player.
 
-The page is served from `http://127.0.0.1:47231/`. Loopback counts as a
-secure context, which EME needs. The port is fixed because MusicKit keeps the
-sign-in in that origin's localStorage, in the CEF profile at
-`~/.local/share/figaro/engine`.
+First tried CEF (cef-rs, CEF 154). Widevine arrived through the component
+updater, but the CEF binary distribution is built without proprietary
+codecs: `MediaSource.isTypeSupported('audio/mp4; codecs="mp4a.40.2"')` is
+false, every key system rejects AAC, and MusicKit fails with "NO DRM".
+Building CEF with `proprietary_codecs` needs ~100 GB and most of a day, so
+it was dropped (2026-10-13).
+
+The page is loaded as a data URL with base URL
+`https://music.apple.com/figaro-engine`, which gives it that origin; the
+web player token is accepted only from apple.com origins. It's a secure
+context, which EME needs. Nothing is intercepted: an `https` protocol
+handler that passed other requests through broke Apple's sign-in popup.
+MusicKit keeps the sign-in in that origin's localStorage, in the engine
+profile at `~/.local/share/figaro/electron`.
+
+Hardware acceleration is off. With it, the GPU process segfaulted on the
+dev laptop (Fedora 45, GNOME Wayland) and the sign-in popup stayed blank
+even though Apple's page had loaded.
 
 See `ENGINE_PROTOCOL.md` for the app ↔ engine messages.
 
 ## Confirmed against a live account (2026-10-12)
+
+Playback (2026-10-13, Fedora, castlabs Electron v44.5.1+wvcus, not
+VMP-signed): signed in through MusicKit's popup, and a catalog song played
+in full (499 s, past the 30 s preview mark). Apple's license server accepts
+an unsigned castlabs client. Quality: `music.bitrate` 256, flavor
+`28:ctrp256` (AAC 256 kbps, Widevine CTR), files `*.rphq.aac.wa.m3u8` /
+`*.rmhq.aac.wa.mp4`. No lossless or Atmos for web players; the engine pins
+`bitrate` to HIGH. Then through the app: sign-in, and library
+songs queued by library ID play.
+
 
 Probe (`applemusic/examples/probe.rs`) with the web player token and a Music
 User Token copied from music.apple.com's console
@@ -110,8 +139,11 @@ User Token copied from music.apple.com's console
   Apple-made playlists in the library ("Favourite Songs").
 - 659 of 677 library songs have `playParams.catalogId`. The other 18 are
   presumably uploads.
-- **No library song has `dateAdded`.** There's no "Date Added" sort from
-  this endpoint.
+- **No library song has `dateAdded`**, but the endpoint sorts by it:
+  `/v1/me/library/songs?sort=-dateAdded` is newest first (exact order).
+  With `include=albums`, each song's library album carries `dateAdded`;
+  Figaro shows that date and sorts by the API's order. `next` links drop
+  `limit`, `sort` and `include`, so pagination re-adds them.
 - Writes (`examples/writetest.rs`) work with the web token: create playlist
   with initial tracks, append `library-songs` tracks (immediately readable),
   and add a catalog song to the library (visible on the next library
@@ -119,16 +151,14 @@ User Token copied from music.apple.com's console
 
 ## Open questions **[unknown]**
 
-- Does the CEF build from `cef-dll-sys` (Spotify CDN, CEF 154) fetch
-  Widevine on Linux through the component updater, with only a persistent
-  `root_cache_path`? If not, playback falls back to 30-second previews, or
-  `mediaPlaybackError` reports a key-system error.
-- Does MusicKit v3 `setQueue({songs})` accept library IDs (`i.…`) for
-  uploaded songs, or do they need `setQueue({song})` one at a time or a
-  `library-songs` URL?
-- Does the hidden Views window on Wayland/X11 keep playing without being
-  mapped, or does Chromium throttle it? If it does, show it minimized or
-  switch to windowless rendering.
+- Does MusicKit v3 `setQueue({songs})` accept library IDs (`i.…`)? It
+  resolved them (the "could not be resolved" error went away) but full
+  playback by library ID is still unconfirmed, as is the uploaded songs'.
+- Does the hidden window keep playing without being mapped? The engine sets
+  `backgroundThrottling: false`.
+- Right after the first sign-in, a `play` failed with "could not be
+  resolved" and the same `play` worked a moment later (storefront not set
+  yet?).
 - MusicKit user tokens expire after about 6 months. A 401/403 makes the app
-  ask for sign-in again. Does `authorize()` stay silent while the CEF
+  ask for sign-in again. Does `authorize()` stay silent while the engine's
   cookies are still valid?
