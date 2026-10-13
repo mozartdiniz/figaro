@@ -21,6 +21,8 @@ Your Apple Music library and playlists on GNOME.
    just engine                          # downloads castlabs Electron into engine/bundle/
    ```
 3. `cargo run`, then *Sign In* with your Apple ID.
+4. Optional: `just install` puts Figaro and its engine into `~/.local`, with
+   a launcher in the GNOME app grid (`just uninstall` removes it).
 
 ## How it works
 

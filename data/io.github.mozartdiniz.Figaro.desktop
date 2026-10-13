@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Figaro
+Comment=Listen to your Apple Music library, search, and playlists
+Exec=figaro
+Icon=io.github.mozartdiniz.Figaro
+Terminal=false
+Type=Application
+Categories=Audio;Music;Player;AudioVideo;GTK;GNOME;
+Keywords=apple;music;itunes;player;playlist;
+StartupNotify=true
