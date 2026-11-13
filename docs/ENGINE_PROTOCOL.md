@@ -16,6 +16,7 @@ event object. When stdin closes, the engine quits.
 | `play` | `ids` (array), `start` | `setQueue({songs: ids})`, then play |
 | `toggle` / `pause` / `resume` | | |
 | `next` / `previous` | | `previous` restarts the song if past 3 s |
+| `goto` | `id`, `index` | Plays the queued song `id` (found by id; `index` if it isn't) |
 | `seek` | `seconds` | |
 | `volume` | `value` (0–1) | |
 | `show` / `hide` | | Shows or hides the hidden player window (debugging) |

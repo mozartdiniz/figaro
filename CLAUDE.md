@@ -34,6 +34,8 @@ src/
   window.rs     window + controller (session, library, requests, dialogs)
   song_table.rs sortable/filterable ColumnView used by every page
   player_bar.rs transport, position, volume
+  mpris.rs      MPRIS2 (Player + TrackList) on the session bus, so media
+                keys and desktop media controls see playback and the queue
   playback.rs   engine child process client (JSON lines)
   config.rs     config.json + library cache
   secrets.rs    keyring
@@ -58,6 +60,8 @@ docs/         protocol research, engine protocol
   Widevine (as Cider). See `docs/APPLE_MUSIC_PROTOCOL.md`.
 - **Queue = visible list.** Playing a row queues the table as sorted and
   filtered, starting at that row (capped at 300 songs).
+- **Close hides while a song is loaded**: the music plays on, and the window
+  comes back from the launcher or MPRIS Raise. Ctrl+Q quits.
 - Ownership as in scrawl: the window's `destroy` handler holds the only
   strong `Rc<Inner>`, closures hold `Weak`.
 

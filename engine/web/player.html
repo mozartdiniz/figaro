@@ -108,6 +108,15 @@
           if ((music.currentPlaybackTime || 0) > 3) await music.seekToTime(0);
           else await music.skipToPreviousItem();
           break;
+        case "goto": {
+          // By id: MusicKit leaves out songs it can't play, which
+          // shifts the indices of the rest.
+          const items = (music.queue && music.queue.items) || [];
+          let i = items.findIndex((it) => it.id === c.id);
+          if (i < 0) i = c.index;
+          await music.changeToMediaAtIndex(i);
+          break;
+        }
         case "seek": await music.seekToTime(c.seconds); break;
         case "volume": music.volume = Math.max(0, Math.min(1, c.value)); break;
         default: throw new Error("unknown command " + c.cmd);

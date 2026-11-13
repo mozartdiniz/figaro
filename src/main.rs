@@ -1,4 +1,5 @@
 mod config;
+mod mpris;
 mod playback;
 mod player_bar;
 mod secrets;

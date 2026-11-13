@@ -194,6 +194,11 @@ impl PlayerBar {
     pub fn volume(&self) -> f64 {
         self.0.volume.value()
     }
+
+    /// Moves the slider, which sets the engine's volume as a drag would.
+    pub fn set_volume(&self, value: f64) {
+        self.0.volume.set_value(value);
+    }
 }
 
 trait IfEmpty {

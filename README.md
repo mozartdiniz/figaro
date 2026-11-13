@@ -7,6 +7,7 @@ Your Apple Music library and playlists on GNOME.
   genre, year or time; filter as you type
 - Playlists: browse, create, add songs (right-click → Add to Playlist)
 - Plays your subscription's full-length songs
+- Media keys and desktop media controls work (MPRIS), including the queue
 
 ## Setup
 

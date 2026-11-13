@@ -74,6 +74,9 @@ function quit() {
 app.setPath("userData", profileDir());
 // The window is hidden, so there is never a user gesture.
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+// Figaro itself is the MPRIS player (src/mpris.rs), with the queue; keep
+// Chromium from registering a second one for the hidden page.
+app.commandLine.appendSwitch("disable-features", "HardwareMediaKeyHandling,MediaSessionService");
 // No GPU needed for an audio page and a sign-in form. On the dev laptop
 // (Fedora, GNOME) the GPU process segfaulted and windows stayed blank.
 app.disableHardwareAcceleration();

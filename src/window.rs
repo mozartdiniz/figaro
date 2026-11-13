@@ -16,6 +16,7 @@ use applemusic::{Client, Playlist, Song};
 use gtk::{gio, glib};
 
 use crate::config::{Config, DevToken, LibraryCache};
+use crate::mpris::{self, Mpris};
 use crate::playback::{Engine, Event};
 use crate::player_bar::{Controls, PlayerBar, ARTWORK_SIZE};
 use crate::secrets;
@@ -50,6 +51,8 @@ struct Inner {
     /// "Add to Playlist" entries, shared by every table's context menu.
     playlists_menu: gio::Menu,
     player: PlayerBar,
+    /// Media controls on the session bus.
+    mpris: Mpris,
 
     config: RefCell<Config>,
     developer_token: RefCell<Option<DevToken>>,
@@ -81,6 +84,18 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
 
     let inner = Rc::new_cyclic(|weak: &Weak<Inner>| Inner::new(&window, weak.clone()));
     inner.install_actions(&window);
+
+    // With a song loaded, closing hides the window and the music plays on;
+    // the app comes back from the launcher or the desktop's media controls
+    // (MPRIS Raise), and quits from the app menu (Ctrl+Q).
+    let weak = Rc::downgrade(&inner);
+    window.connect_close_request(move |window| {
+        if weak.upgrade().is_some_and(|inner| inner.mpris.has_song()) {
+            window.set_visible(false);
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
 
     // The destroy handler owns the controller (see module docs).
     let keep = RefCell::new(Some(inner.clone()));
@@ -124,7 +139,51 @@ impl Inner {
             },
             volume: {
                 let weak = weak.clone();
-                Box::new(move |v| with_engine(&weak, |e| e.set_volume(v)))
+                Box::new(move |v| {
+                    with_engine(&weak, |e| e.set_volume(v));
+                    if let Some(inner) = weak.upgrade() {
+                        inner.mpris.set_volume(v);
+                    }
+                })
+            },
+        });
+        let mpris = Mpris::new(mpris::Actions {
+            toggle: engine_action(&weak, Engine::toggle),
+            play: engine_action(&weak, Engine::resume),
+            pause: engine_action(&weak, Engine::pause),
+            next: engine_action(&weak, Engine::next),
+            previous: engine_action(&weak, Engine::previous),
+            seek: {
+                let weak = weak.clone();
+                Box::new(move |s| with_engine(&weak, |e| e.seek(s)))
+            },
+            goto: {
+                let weak = weak.clone();
+                Box::new(move |id, index| with_engine(&weak, |e| e.goto(id, index)))
+            },
+            volume: {
+                let weak = weak.clone();
+                Box::new(move |v| {
+                    if let Some(inner) = weak.upgrade() {
+                        inner.player.set_volume(v);
+                    }
+                })
+            },
+            raise: {
+                let window = window.downgrade();
+                Box::new(move || {
+                    if let Some(w) = window.upgrade() {
+                        w.present();
+                    }
+                })
+            },
+            quit: {
+                let window = window.downgrade();
+                Box::new(move || {
+                    if let Some(app) = window.upgrade().and_then(|w| w.application()) {
+                        app.quit();
+                    }
+                })
             },
         });
 
@@ -302,6 +361,7 @@ impl Inner {
             playlist_table,
             playlists_menu,
             player,
+            mpris,
             config: RefCell::new(Config::load()),
             developer_token: RefCell::new(None),
             token_error: RefCell::new(None),
@@ -450,18 +510,26 @@ impl Inner {
                 self.signin_button.set_visible(true);
                 self.refresh_page();
             }
-            Event::State { playing } => self.player.set_playing(playing),
-            Event::NowPlaying { item } => {
+            Event::State { playing } => {
+                self.player.set_playing(playing);
+                self.mpris.set_playing(playing);
+            }
+            Event::NowPlaying { item, index } => {
                 self.player.set_now_playing(item.as_ref());
+                self.mpris.set_now_playing(item.as_ref(), index);
                 if let Some(url) = item.and_then(|i| i.artwork) {
                     self.load_artwork(url);
                 }
             }
-            Event::Time { position, duration } => self.player.set_time(position, duration),
+            Event::Time { position, duration } => {
+                self.player.set_time(position, duration);
+                self.mpris.set_time(position, duration);
+            }
             Event::Error { message } => self.toast(&message),
             Event::Exited => {
                 *self.engine.borrow_mut() = None;
                 self.player.set_playing(false);
+                self.mpris.clear();
                 self.toast("The playback engine stopped");
             }
         }
@@ -709,6 +777,7 @@ impl Inner {
         };
         let end = (start + QUEUE_MAX).min(queue.len());
         let ids: Vec<&str> = queue[start..end].iter().map(Song::playback_id).collect();
+        self.mpris.set_queue(queue[start..end].iter().map(mpris_track).collect());
         engine.play(&ids, 0);
         engine.set_volume(self.player.volume());
     }
@@ -1091,6 +1160,9 @@ impl Inner {
             let Some(inner) = weak.upgrade() else { return };
             if let (Ok(bytes), true) = (res, inner.artwork_generation.get() == generation) {
                 inner.player.set_artwork(&bytes);
+                if let Some(uri) = save_now_playing_art(&bytes) {
+                    inner.mpris.set_art_file(uri);
+                }
             }
         });
     }
@@ -1126,6 +1198,32 @@ fn with_engine(weak: &Weak<Inner>, f: impl FnOnce(&Engine)) {
 fn engine_action(weak: &Weak<Inner>, f: fn(&Engine)) -> Box<dyn Fn()> {
     let weak = weak.clone();
     Box::new(move || with_engine(&weak, f))
+}
+
+fn mpris_track(song: &Song) -> mpris::Track {
+    mpris::Track {
+        id: song.playback_id().to_owned(),
+        title: song.name.clone(),
+        artist: song.artist.clone(),
+        album: song.album.clone(),
+        duration: song.duration_ms as f64 / 1000.0,
+        art_url: song.artwork_url.as_deref().map(|t| applemusic::artwork_url(t, 256)),
+    }
+}
+
+/// Writes the playing song's artwork where media controls can read it
+/// without fetching it again. One file, replaced for every song: a new name
+/// each time, so clients don't show a cached picture of the last one.
+fn save_now_playing_art(bytes: &[u8]) -> Option<String> {
+    let dir = glib::user_cache_dir().join("figaro").join("now-playing");
+    std::fs::create_dir_all(&dir).ok()?;
+    for old in std::fs::read_dir(&dir).ok()?.flatten() {
+        let _ = std::fs::remove_file(old.path());
+    }
+    let stamp = glib::monotonic_time();
+    let path = dir.join(format!("{stamp}.jpg"));
+    std::fs::write(&path, bytes).ok()?;
+    Some(gio::File::for_path(&path).uri().to_string())
 }
 
 fn sidebar_row(icon: &str, label: &str, name: &str) -> gtk::ListBoxRow {

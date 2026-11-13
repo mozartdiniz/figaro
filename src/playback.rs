@@ -26,6 +26,9 @@ pub enum Event {
     },
     NowPlaying {
         item: Option<NowPlaying>,
+        /// Position in MusicKit's queue, -1 for none.
+        #[serde(default = "no_index")]
+        index: i64,
     },
     Time {
         position: f64,
@@ -41,6 +44,9 @@ pub enum Event {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NowPlaying {
+    /// Playback id, as queued.
+    #[serde(default)]
+    pub id: String,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -50,6 +56,10 @@ pub struct NowPlaying {
     #[serde(default)]
     pub duration: f64,
     pub artwork: Option<String>,
+}
+
+fn no_index() -> i64 {
+    -1
 }
 
 #[derive(Clone)]
@@ -140,6 +150,19 @@ impl Engine {
         self.send(json!({ "cmd": "toggle" }));
     }
 
+    pub fn pause(&self) {
+        self.send(json!({ "cmd": "pause" }));
+    }
+
+    pub fn resume(&self) {
+        self.send(json!({ "cmd": "resume" }));
+    }
+
+    /// Plays the queued song `id`, expected at `index` of the queue.
+    pub fn goto(&self, id: &str, index: usize) {
+        self.send(json!({ "cmd": "goto", "id": id, "index": index }));
+    }
+
     pub fn next(&self) {
         self.send(json!({ "cmd": "next" }));
     }
@@ -189,9 +212,9 @@ mod tests {
             r#"{"event":"now_playing","item":{"id":"1","title":"T","artist":"A","album":"B","duration":200.5,"artwork":null},"index":3}"#,
         )
         .unwrap();
-        assert!(matches!(ev, Event::NowPlaying { item: Some(ref n) } if n.title == "T"));
+        assert!(matches!(ev, Event::NowPlaying { item: Some(ref n), index: 3 } if n.title == "T" && n.id == "1"));
         let ev: Event = serde_json::from_str(r#"{"event":"now_playing","item":null,"index":-1}"#).unwrap();
-        assert!(matches!(ev, Event::NowPlaying { item: None }));
+        assert!(matches!(ev, Event::NowPlaying { item: None, index: -1 }));
         assert!(serde_json::from_str::<Event>(r#"{"event":"loaded"}"#).is_ok());
         assert!(serde_json::from_str::<Event>(r#"{"level":"x"}"#).is_err());
     }
